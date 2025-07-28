@@ -73,25 +73,25 @@ document.addEventListener('DOMContentLoaded', function() {
         loadingQueue: []
     };
     
-    // Image preloading and caching system - optimized for on-demand loading
+    // Image preloading and caching system
     const ImageLoader = {
         cache: new Map(),
         loadingPromises: new Map(),
-        priorityQueue: [],
-        isProcessingQueue: false,
         
-        // Only preload essential UI images (not 360° images)
+        // Preload critical images
         preloadCritical: function() {
-            // Only preload the default skybox placeholder - no 360° images
             const criticalImages = [
-                'https://res.cloudinary.com/dugxrvrs5/image/upload/f_auto,q_auto,w_1024/v1743753190/20250404_131710_587_formphotoeditor.com_wjfmhk.jpg'
+                'https://res.cloudinary.com/dugxrvrs5/image/upload/f_auto,q_auto,w_1024/v1743753190/20250404_131710_587_formphotoeditor.com_wjfmhk.jpg',
+                'https://res.cloudinary.com/dugxrvrs5/image/upload/v1750315076/entrance_jgbfdn.jpg',
+                'https://res.cloudinary.com/dugxrvrs5/image/upload/v1750315079/kovil_xj0psx.jpg',
+                'https://res.cloudinary.com/dugxrvrs5/image/upload/v1750315074/central_library_oxukdy.jpg'
             ];
             
             criticalImages.forEach(url => this.preload(url));
         },
         
-        // Load image with priority support
-        preload: function(url, priority = false) {
+        // Preload image with promise caching
+        preload: function(url) {
             if (this.cache.has(url)) {
                 return Promise.resolve(this.cache.get(url));
             }
@@ -119,79 +119,28 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             
             this.loadingPromises.set(url, promise);
-            
-            // If priority, load immediately, otherwise add to queue
-            if (priority) {
-                return promise;
-            } else {
-                this.priorityQueue.push({ url, promise });
-                this.processQueue();
-                return promise;
-            }
+            return promise;
         },
         
-        // Process loading queue sequentially to avoid bandwidth overload
-        processQueue: function() {
-            if (this.isProcessingQueue || this.priorityQueue.length === 0) {
-                return;
-            }
-            
-            this.isProcessingQueue = true;
-            const { url, promise } = this.priorityQueue.shift();
-            
-            promise.finally(() => {
-                this.isProcessingQueue = false;
-                // Process next item after a small delay to prevent overwhelming
-                setTimeout(() => this.processQueue(), 100);
-            });
-        },
-        
-        // Load image with high priority (for clicked images)
-        loadWithPriority: function(url) {
-            return this.preload(url, true);
-        },
-        
-        // Get cached image or load with priority
-        get: function(url, priority = false) {
+        // Get cached image or load
+        get: function(url) {
             if (this.cache.has(url)) {
                 return Promise.resolve(this.cache.get(url));
             }
-            return priority ? this.loadWithPriority(url) : this.preload(url);
+            return this.preload(url);
         },
         
-        // Only preload thumbnail images in viewport (not 360° images)
+        // Preload images in viewport
         preloadVisible: function() {
-            // Only preload thumbnail images, not the 360° source images
-            const visibleThumbnails = Array.from(document.querySelectorAll('.lazy-image')).filter(img => {
-                const rect = img.getBoundingClientRect();
+            const visibleItems = Array.from(elements.imageItems).filter(item => {
+                const rect = item.getBoundingClientRect();
                 return rect.top < window.innerHeight + 200 && rect.bottom > -200;
             });
             
-            // Don't preload 360° images automatically
-            // Only preload if it's a thumbnail image (has lazy-image class)
-            visibleThumbnails.forEach(img => {
-                const imgSrc = img.src;
-                if (imgSrc && !this.cache.has(imgSrc)) {
-                    this.preload(imgSrc);
-                }
-            });
-        },
-        
-        // Preload adjacent images for smooth navigation
-        preloadAdjacent: function(currentIndex, category) {
-            const categoryItems = Array.from(document.querySelectorAll(`.image-item[data-category="${category}"]`));
-            
-            // Preload previous and next images only
-            const adjacentIndices = [currentIndex - 1, currentIndex + 1].filter(
-                index => index >= 0 && index < categoryItems.length
-            );
-            
-            adjacentIndices.forEach(index => {
-                const item = categoryItems[index];
+            visibleItems.forEach(item => {
                 const imgSrc = item.getAttribute('data-src');
                 if (imgSrc && !this.cache.has(imgSrc)) {
-                    // Add to queue with lower priority
-                    this.preload(imgSrc, false);
+                    this.preload(imgSrc);
                 }
             });
         }
@@ -776,7 +725,7 @@ document.addEventListener('DOMContentLoaded', function() {
         setTimeout(() => elements.lookDownBtn.style.transform = '', 200);
     }
     
-    // Optimized image item click handling - load on demand only
+    // Optimized image item click handling
     function setupImageItemClicks() {
         elements.imageItems.forEach(item => {
             item.addEventListener('click', function() {
@@ -791,45 +740,44 @@ document.addEventListener('DOMContentLoaded', function() {
                 const mediaName = this.querySelector('.image-caption').textContent;
                 const category = this.getAttribute('data-category');
                 
-                // Load the clicked image with high priority (no preloading)
-                elements.homePage.style.opacity = '0';
-                
-                setTimeout(() => {
-                    elements.homePage.style.display = 'none';
-                    elements.vrContainer.style.display = 'block';
-                    elements.backToHome.style.display = 'block';
-                    
-                    forceControlPanelVisible();
-                    elements.vrNavControls.style.display = 'flex';
-                    
-                    state.currentCategory = category;
-                    state.isInVRView = true;
-                    const categoryItems = Array.from(document.querySelectorAll(`.image-item[data-category="${category}"]`));
-                    state.currentMediaIndex = categoryItems.indexOf(this);
+                // Preload the image before transitioning
+                ImageLoader.preload(imgSrc).then(() => {
+                    elements.homePage.style.opacity = '0';
                     
                     setTimeout(() => {
-                        const scene = document.querySelector('a-scene');
-                        if (scene) {
-                            window.dispatchEvent(new Event('resize'));
-                            
-                            setTimeout(() => {
-                                loadSkyTexture(imgSrc, mediaName);
+                        elements.homePage.style.display = 'none';
+                        elements.vrContainer.style.display = 'block';
+                        elements.backToHome.style.display = 'block';
+                        
+                        forceControlPanelVisible();
+                        elements.vrNavControls.style.display = 'flex';
+                        
+                        state.currentCategory = category;
+                        state.isInVRView = true;
+                        const categoryItems = Array.from(document.querySelectorAll(`.image-item[data-category="${category}"]`));
+                        state.currentMediaIndex = categoryItems.indexOf(this);
+                        
+                        setTimeout(() => {
+                            const scene = document.querySelector('a-scene');
+                            if (scene) {
+                                window.dispatchEvent(new Event('resize'));
                                 
-                                // Preload adjacent images after current image loads
                                 setTimeout(() => {
-                                    ImageLoader.preloadAdjacent(state.currentMediaIndex, category);
-                                    forceControlPanelVisible();
-                                }, 300);
-                            }, 200);
-                        } else {
-                            loadSkyTexture(imgSrc, mediaName);
-                            // Preload adjacent images after current image loads
-                            setTimeout(() => {
-                                ImageLoader.preloadAdjacent(state.currentMediaIndex, category);
-                            }, 1000);
-                        }
-                    }, 100);
-                }, 400);
+                                    loadSkyTexture(imgSrc, mediaName);
+                                    
+                                    setTimeout(() => {
+                                        forceControlPanelVisible();
+                                    }, 300);
+                                }, 200);
+                            } else {
+                                loadSkyTexture(imgSrc, mediaName);
+                            }
+                        }, 100);
+                    }, 400);
+                }).catch(error => {
+                    console.error('Failed to preload image:', error);
+                    showNotification('<i class="fas fa-exclamation-triangle"></i> Failed to load image');
+                });
             });
         });
     }
@@ -931,14 +879,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     const imgSrc = prevImage.getAttribute('data-src');
                     const mediaName = prevImage.querySelector('.image-caption').textContent;
                     
-                    // Load with priority and preload adjacent after
-                    loadSkyTexture(imgSrc, mediaName);
-                    updateNavigationButtonStates(categoryItems.length);
-                    
-                    // Preload adjacent images after current loads
-                    setTimeout(() => {
-                        ImageLoader.preloadAdjacent(state.currentMediaIndex, state.currentCategory);
-                    }, 1000);
+                    // Preload before loading
+                    ImageLoader.preload(imgSrc).then(() => {
+                        loadSkyTexture(imgSrc, mediaName);
+                        updateNavigationButtonStates(categoryItems.length);
+                    });
                 } else {
                     this.classList.add('disabled');
                     setTimeout(() => {
@@ -972,14 +917,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     const imgSrc = nextImage.getAttribute('data-src');
                     const mediaName = nextImage.querySelector('.image-caption').textContent;
                     
-                    // Load with priority and preload adjacent after
-                    loadSkyTexture(imgSrc, mediaName);
-                    updateNavigationButtonStates(categoryItems.length);
-                    
-                    // Preload adjacent images after current loads
-                    setTimeout(() => {
-                        ImageLoader.preloadAdjacent(state.currentMediaIndex, state.currentCategory);
-                    }, 1000);
+                    // Preload before loading
+                    ImageLoader.preload(imgSrc).then(() => {
+                        loadSkyTexture(imgSrc, mediaName);
+                        updateNavigationButtonStates(categoryItems.length);
+                    });
                 } else {
                     this.classList.add('disabled');
                     setTimeout(() => {
